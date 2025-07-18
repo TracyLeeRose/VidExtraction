@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Aquiplicity 2025 - Video Frame Extractor</title> <!-- Title Updated -->
+    <style>
+        /* --- CSS Styles (Largely Unchanged - Minor tweaks for clarity) --- */
+        body { margin: 0; padding: 0; display: flex; flex-direction: column; height: 100vh; font-family: Arial, sans-serif; }
+        #marqueeContainer { position: fixed; top: 0; left: 0; width: 100%; background: #f0f0f0; border-bottom: 1px solid #ccc; overflow: hidden; height: 20px; z-index: 1000; }
+        #marquee { font-family: Arial, sans-serif; font-size: 12px; white-space: nowrap; animation: scroll 40s linear infinite; }
+        @keyframes scroll { from { transform: translateX(100%); } to { transform: translateX(-100%); } }
+        #controls { display: flex; align-items: center; padding: 10px; flex-wrap: wrap; margin-top: 20px; border-bottom: 1px solid #eee; }
+        #mainContainer { display: flex; flex: 1; overflow: hidden; }
+        /* Thumbnail strip removed as it's less relevant for frame extraction */
+        /* #thumbnailStrip { display: flex; flex-direction: column; overflow-y: auto; overflow-x: hidden; padding: 5px; border-right: 1px solid #ccc; background: #f0f0f0; width: 165px; flex-shrink: 0; } */
+        /* .thumbnail { width: 150px; height: 112px; object-fit: cover; margin-bottom: 5px; border: 1px solid #999; cursor: pointer; background-color: #ddd; } */
+        /* .thumbnail:hover { border-color: #000; box-shadow: 0 0 5px rgba(0,0,0,0.3); } */
+        #workingArea { flex: 1; display: flex; flex-direction: column; align-items: center; overflow: auto; background-color: #e8e8e8; padding: 10px; }
+        /* Canvas shows preview frame */
+        canvas { border: 1px solid black; margin: 10px auto; display: block; background-color: white; max-width: calc(100% - 40px); max-height: calc(100vh - 250px); /* Adjusted max-height */ box-shadow: 0 2px 10px rgba(0,0,0,0.1); }
+        #canvasPreview:not([width]), #canvasPreview:not([height]){ min-height: 200px; min-width: 300px; background-color: #ccc; border-style: dashed; }
+        #status { margin: 10px 5px 5px 5px; font-family: Arial, sans-serif; font-size: 0.9em; color: #333; text-align: center; min-height: 1.2em; flex-shrink: 0; width: 100%; }
+        button, input[type="file"]::file-selector-button, input[type="text"] { margin: 5px; padding: 6px 12px; font-size: 0.9em; border-radius: 4px; border: 1px solid #ccc; background-color: #f8f8f8; transition: background-color 0.2s, border-color 0.2s; }
+        input[type="text"] { padding: 5px 8px; }
+        button:hover, input[type="file"]::file-selector-button:hover { background-color: #eee; border-color: #aaa; }
+        button:disabled { cursor: not-allowed; opacity: 0.6; }
+        .slider-container { margin: 0 10px; display: flex; align-items: center; }
+        .slider-label { margin-right: 5px; font-family: Arial, sans-serif; font-size: 0.85em; }
+        input[type="range"] { width: 120px; height: 5px; cursor: pointer; }
+        input[type="range"]:disabled { cursor: not-allowed; opacity: 0.5; }
+        .slider-value { margin-left: 5px; min-width: 35px; font-family: 'Courier New', Courier, monospace; font-size: 0.85em; background-color: #eee; padding: 2px 4px; border-radius: 3px; text-align: center; }
+        .slider-timestamp { margin-left: 5px; font-size: 0.8em; color: #444; font-family: 'Courier New', Courier, monospace; min-width: 55px; display: inline-block; text-align: right; }
+        .action-button { background-color: #4CAF50; color: white; border: none; box-shadow: 0 2px #3a8a40; }
+        .action-button:hover { background-color: #45a049; border: none; }
+        .action-button:active { box-shadow: 0 1px #3a8a40; transform: translateY(1px); }
+        .reset-button { background-color: #cc0000; color: white; padding: 4px 8px; border: none; border-radius: 3px; box-shadow: 0 2px #990000, 0 3px 5px rgba(0,0,0,0.2); cursor: pointer; font-family: Arial, sans-serif; font-size: 12px; transition: all 0.1s; margin: 0 5px; }
+        .reset-button:hover { background-color: #e60000; }
+        .reset-button:active { box-shadow: 0 1px #990000; transform: translateY(1px); }
+        #progressContainer { width: 80%; max-width: 400px; height: 10px; background-color: #ccc; border-radius: 5px; margin: 5px auto; overflow: hidden; display: none; }
+        #progressBar { width: 0%; height: 100%; background-color: #4CAF50; border-radius: 5px; transition: width 0.1s linear; }
+        .control-group { border: 1px solid #ddd; padding: 5px; margin: 5px; border-radius: 4px; background-color: #f9f9f9; display: flex; align-items: center; flex-wrap: wrap; }
+        .control-group > span { font-weight: bold; font-size: 0.9em; margin-right: 10px; }
+        #totalFramesInfo { font-size: 0.8em; color: #555; margin-left: 5px; margin-right: 10px; }
+        #numFramesControl { margin-left: 15px; }
+        #fileNameControl { margin-left: 15px; }
+        #fileNameLabel { margin-right: 5px; font-size: 0.9em; }
+    </style>
+</head>
+<body>
+    <div id="marqueeContainer">
+        <!-- Updated Marquee Text -->
+        <div id="marquee">Load MP4. Select Start Time & Number of Frames. Enter Base Filename. Click Extract Frames to save individual JPEGs (files saved to browser default download location).</div>
+    </div>
+    <div id="controls">
+        <input type="file" id="videoInput" accept="video/mp4"> <!-- Changed ID -->
+        <button id="extractButton" onclick="extractFrames()" class="action-button" disabled>Extract Frames</button> <!-- Changed ID, Text, Function -->
+        <button class="reset-button" onclick="resetApplication()">Reset</button>
+
+        <div class="control-group" id="frameSelectContainer" style="display: none;">
+            <span>Start Point:</span><span id="totalFramesInfo">(Total: N/A)</span>
+            <div class="slider-container">
+                <span class="slider-label">Start:</span>
+                <input type="range" id="frameSelectSlider" min="0" max="100" step="1" value="0" disabled>
+                <span class="slider-value" id="frameSelectSlider-value">0%</span>
+                <span class="slider-timestamp" id="frameSelectSlider-timestamp">(--:--)</span>
+            </div>
+        </div>
+
+         <div class="control-group" id="numFramesControl">
+            <span class="slider-label">Number of Frames:</span>
+            <!-- Default value changed to 300 -->
+            <input type="range" id="numFramesSlider" min="10" max="1000" step="10" value="300" disabled>
+            <span class="slider-value" id="numFramesSlider-value">300</span> frames
+        </div>
+
+         <div class="control-group" id="fileNameControl">
+            <label for="fileTitleInput" id="fileNameLabel">Base Filename:</label>
+            <input type="text" id="fileTitleInput" placeholder="video_frames" value="video_frames" disabled>
+            <span style="font-size: 0.8em; color: #555; margin-left: 5px;">(e.g., myvideo -> myvideo_001.jpg)</span>
+        </div>
+    </div>
+    <div id="mainContainer">
+        <!-- Removed Thumbnail Strip -->
+        <div id="workingArea">
+            <canvas id="canvasPreview"></canvas> <!-- Changed ID - used for preview -->
+            <div id="progressContainer"><div id="progressBar"></div></div>
+            <div id="status">Upload an MP4 video to begin</div>
+            <!-- Removed Save Panorama Button -->
+        </div>
+    </div>
+
+    <script type="text/javascript">
+        // --- Constants ---
+        const FRAME_RATE_ESTIMATE = 30; // Used for time calculations and frame stepping
+        const SEEK_TIMEOUT = 15000; // Increased timeout for potentially slower seeks
+        const INITIAL_DISPLAY_FRAME = 25; // Frame for initial preview
+        const DEFAULT_NUM_FRAMES = 300; // Default number of frames to extract
+        const DOWNLOAD_DELAY_MS = 100; // Small delay between triggering downloads (helps browser cope)
+
+        // --- Global Variables ---
+        let previewCanvas = document.getElementById('canvasPreview');
+        let previewCtx = previewCanvas.getContext('2d');
+        let status = document.getElementById('status');
+        let extractButton = document.getElementById('extractButton');
+        // let thumbnailStrip = document.getElementById('thumbnailStrip'); // Removed
+        let progressContainer = document.getElementById('progressContainer');
+        let progressBar = document.getElementById('progressBar');
+        let frameSelectSliderContainer = null;
+        let frameSelectSlider = null;
+        let frameSelectValueDisplay = null;
+        let frameSelectTimestampDisplay = null;
+        let totalFramesInfoSpan = null;
+        let numFramesSlider = null;
+        let numFramesValueDisplay = null;
+        let fileTitleInput = null; // Added
+        let videoDuration = 0;
+        let totalVideoFramesEstimate = 0;
+        let currentVideoFile = null;
+        let activeVideoElement = null;
+        let isExtracting = false; // Flag to prevent concurrent extractions
+
+        // --- Helper Function to Format Time ---
+        function formatTime(totalSeconds) { if (isNaN(totalSeconds) || totalSeconds < 0 || !isFinite(totalSeconds)) { return "--:--"; } totalSeconds = Math.max(0, totalSeconds); const hours = Math.floor(totalSeconds / 3600); const minutes = Math.floor((totalSeconds % 3600) / 60); const seconds = Math.floor(totalSeconds % 60); let timeString = ""; if (hours > 0) { timeString += `${String(hours).padStart(2, '0')}:`; timeString += `${String(minutes).padStart(2, '0')}:`; timeString += `${String(seconds).padStart(2, '0')}`; } else { timeString += `${String(minutes).padStart(2, '0')}:`; timeString += `${String(seconds).padStart(2, '0')}`; } return timeString; }
+
+        // --- Initialization ---
+        document.addEventListener('DOMContentLoaded', () => {
+            previewCanvas = document.getElementById('canvasPreview'); previewCtx = previewCanvas?.getContext('2d'); if (!previewCanvas || !previewCtx) { console.error('Preview Canvas context failed'); status.textContent = 'Error: Canvas init failed'; return; }
+            document.getElementById('videoInput').addEventListener('change', handleVideoUpload);
+            frameSelectSliderContainer = document.getElementById('frameSelectContainer'); frameSelectSlider = document.getElementById('frameSelectSlider'); frameSelectValueDisplay = document.getElementById('frameSelectSlider-value'); frameSelectTimestampDisplay = document.getElementById('frameSelectSlider-timestamp'); totalFramesInfoSpan = document.getElementById('totalFramesInfo');
+            numFramesSlider = document.getElementById('numFramesSlider'); numFramesValueDisplay = document.getElementById('numFramesSlider-value');
+            fileTitleInput = document.getElementById('fileTitleInput'); // Get file title input
+            extractButton = document.getElementById('extractButton');
+
+            if (frameSelectSlider) { frameSelectSlider.addEventListener('input', () => { const sliderValue = parseInt(frameSelectSlider.value, 10); if(frameSelectValueDisplay) frameSelectValueDisplay.textContent = `${sliderValue}%`; let currentTime = 0; if (videoDuration && videoDuration > 0 && isFinite(videoDuration)) { currentTime = videoDuration * (sliderValue / 100.0); } if (frameSelectTimestampDisplay) { frameSelectTimestampDisplay.textContent = `(${formatTime(currentTime)})`; } /* Preview update on drag could be added here if desired, but might be slow */ }); }
+            if (numFramesSlider) { numFramesSlider.addEventListener('input', () => { if(numFramesValueDisplay) numFramesValueDisplay.textContent = numFramesSlider.value; }); }
+
+            console.log('Page loaded');
+            resetApplication(); // Initialize state
+        });
+
+        // --- Promise-based Video Seek Function (same as before) ---
+        const seekPromise = (video, time) => { return new Promise((resolveSeek, rejectSeek) => { const seekTime = Math.max(0, Math.min(time, video.duration)); if (Math.abs(video.currentTime - seekTime) < 0.05) { requestAnimationFrame(resolveSeek); return; } const timeout = setTimeout(() => { console.warn(`Seek to ${seekTime.toFixed(2)} timed out after ${SEEK_TIMEOUT}ms`); video.removeEventListener('seeked', onSeeked); video.removeEventListener('error', onError); rejectSeek(new Error(`Seek to ${seekTime.toFixed(2)} timed out`)); }, SEEK_TIMEOUT); const onSeeked = () => { clearTimeout(timeout); video.removeEventListener('seeked', onSeeked); video.removeEventListener('error', onError); requestAnimationFrame(resolveSeek); }; const onError = (err) => { clearTimeout(timeout); console.error(`Video error during seek to ${seekTime.toFixed(2)}:`, err); video.removeEventListener('seeked', onSeeked); video.removeEventListener('error', onError); rejectSeek(err || new Error(`Unknown error during seek to ${seekTime.toFixed(2)}`)); }; video.addEventListener('seeked', onSeeked, { once: true }); video.addEventListener('error', onError, { once: true }); if (video.readyState < video.HAVE_METADATA) { clearTimeout(timeout); console.error("Seek cancelled: Video metadata not ready."); video.removeEventListener('seeked', onSeeked); video.removeEventListener('error', onError); return rejectSeek(new Error("Video metadata not ready for seek.")); } video.currentTime = seekTime; }); };
+
+        // --- Fit Image/Video to Screen (Used only for PREVIEW canvas) ---
+        function fitToScreen(imgWidth, imgHeight) { const workingArea = document.getElementById('workingArea'); const maxWidth = workingArea.clientWidth - 40; const maxHeight = workingArea.clientHeight - 100; // Approximate available height
+            const safeMaxWidth = Math.max(100, maxWidth); const safeMaxHeight = Math.max(100, maxHeight); const aspectRatio = imgWidth / imgHeight; let newWidth = imgWidth; let newHeight = imgHeight; if (newWidth > safeMaxWidth) { newWidth = safeMaxWidth; newHeight = newWidth / aspectRatio; } if (newHeight > safeMaxHeight) { newHeight = safeMaxHeight; newWidth = newHeight * aspectRatio; } return { width: Math.max(1, Math.floor(newWidth)), height: Math.max(1, Math.floor(newHeight)) }; }
+
+        // --- Video Upload Handler ---
+        async function handleVideoUpload(e) { const files = e.target.files; if (!files || files.length === 0) { status.textContent = 'No video file selected'; return; } const file = files[0]; if (!file.type.startsWith('video/mp4')) { status.textContent = 'Please select an MP4 video file.'; e.target.value = ''; return; } console.log("handleVideoUpload: Starting processing for", file.name); resetApplication(); extractButton.disabled = true; currentVideoFile = file; status.textContent = `Loading video: ${file.name}...`;
+
+            // Suggest base filename from video name
+            const baseName = file.name.substring(0, file.name.lastIndexOf('.')) || file.name;
+            if (fileTitleInput) fileTitleInput.value = baseName.replace(/[^a-z0-9_.-]/gi, '_'); // Sanitize slightly
+
+
+            try { await processVideoFile(file); console.log(`handleVideoUpload: processVideoFile completed for ${file.name}.`); } catch (error) { console.error('Error processing video:', error); status.textContent = `Error processing video: ${error.message}`; resetApplication(); } finally { try { const fileInput = document.getElementById('videoInput'); if(fileInput) fileInput.value = ''; } catch(err) { console.warn("Could not clear file input."); } }
+        }
+
+        // --- Process Video Metadata (Draws scaled preview) ---
+        async function processVideoFile(file) {
+            console.log("processVideoFile: Entered");
+            const video = document.createElement('video');
+            activeVideoElement = video;
+            const objectURL = URL.createObjectURL(file);
+            video.muted = true; video.preload = 'metadata';
+            // thumbnailStrip.innerHTML = ''; // Removed
+
+            return new Promise(async (resolve, reject) => {
+                video.onerror = (e) => { console.error("processVideoFile: video.onerror triggered"); if (objectURL) URL.revokeObjectURL(objectURL); progressContainer.style.display = 'none'; activeVideoElement = null; reject(new Error(`Failed to load video metadata: ${e?.target?.error?.message || e?.message || 'Unknown error'}`)); };
+                video.onloadedmetadata = async () => {
+                    console.log("processVideoFile: video.onloadedmetadata triggered");
+                    videoDuration = video.duration; totalVideoFramesEstimate = Math.floor(videoDuration * FRAME_RATE_ESTIMATE);
+                    console.log(`Video metadata: ${video.videoWidth}x${video.videoHeight}, Duration: ${videoDuration.toFixed(2)}s (Est. ${totalVideoFramesEstimate} frames)`);
+                    if (!videoDuration || videoDuration <= 0 || !isFinite(videoDuration) || !video.videoWidth || !video.videoHeight) { if(totalFramesInfoSpan) totalFramesInfoSpan.textContent = `(Total: Invalid Meta)`; if (objectURL) URL.revokeObjectURL(objectURL); activeVideoElement = null; if(numFramesSlider) numFramesSlider.disabled = true; if(fileTitleInput) fileTitleInput.disabled = true; return reject(new Error('Video metadata invalid or duration is zero.')); }
+                    if (totalFramesInfoSpan) totalFramesInfoSpan.textContent = `(Total: ~${totalVideoFramesEstimate} frames / ${formatTime(videoDuration)})`;
+                    if (frameSelectSliderContainer) frameSelectSliderContainer.style.display = 'flex';
+                    if (frameSelectSlider) frameSelectSlider.disabled = false;
+                    if (numFramesSlider) numFramesSlider.disabled = false;
+                    if (fileTitleInput) fileTitleInput.disabled = false; // Enable filename input
+
+                    // Setup PREVIEW canvas using fitToScreen
+                    const scaledPreviewSize = fitToScreen(video.videoWidth, video.videoHeight);
+                    previewCanvas.width = scaledPreviewSize.width; previewCanvas.height = scaledPreviewSize.height;
+                    previewCtx = previewCanvas.getContext('2d'); // Re-get context if size changed
+                    previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height);
+                    status.textContent = `Video loaded. Seeking to initial frame for preview...`;
+                    let initialDisplayTime = (INITIAL_DISPLAY_FRAME -1) / FRAME_RATE_ESTIMATE; initialDisplayTime = Math.max(0, Math.min(initialDisplayTime, videoDuration - 0.1));
+                    const currentSliderValue = parseInt(frameSelectSlider.value, 10); const sliderTime = videoDuration * (currentSliderValue / 100.0); if(frameSelectValueDisplay) frameSelectValueDisplay.textContent = `${currentSliderValue}%`; if(frameSelectTimestampDisplay) frameSelectTimestampDisplay.textContent = `(${formatTime(sliderTime)})`;
+
+                    try {
+                        if (video.readyState < 2) { console.log("processVideoFile: Video readyState < 2, adding 'loadeddata' listener."); await new Promise((resolveReady, rejectReady) => { const onLoadedData = () => { video.removeEventListener('loadeddata', onLoadedData); video.removeEventListener('error', onError); console.log("processVideoFile: 'loadeddata' triggered for initial draw."); resolveReady(); }; const onError = (err) => { video.removeEventListener('loadeddata', onLoadedData); video.removeEventListener('error', onError); console.error("Error waiting for 'loadeddata' for initial draw:", err); rejectReady(err || new Error("Video error before initial draw")); }; video.addEventListener('loadeddata', onLoadedData, { once: true }); video.addEventListener('error', onError, { once: true }); video.preload = 'auto'; }); console.log("processVideoFile: Video readyState now:", video.readyState); }
+                        console.log(`processVideoFile: Seeking to initialDisplayTime: ${initialDisplayTime.toFixed(3)}s (Frame ~${INITIAL_DISPLAY_FRAME})`);
+                        await seekPromise(video, initialDisplayTime); await new Promise(requestAnimationFrame);
+                        console.log(`processVideoFile: Drawing PREVIEW frame at currentTime: ${video.currentTime.toFixed(3)}`);
+                        // Draw scaled preview onto the preview canvas
+                        previewCtx.drawImage(video, 0, 0, previewCanvas.width, previewCanvas.height);
+                        console.log(`processVideoFile: Initial PREVIEW frame drawn.`);
+                        status.textContent = `Video loaded (${formatTime(videoDuration)}). Ready to extract frames.`;
+                        extractButton.disabled = false; resolve();
+                    } catch (error) { console.error(`processVideoFile: Error seeking/drawing initial PREVIEW frame:`, error); status.textContent = `Error loading initial frame: ${error.message}`; if (objectURL) URL.revokeObjectURL(objectURL); activeVideoElement = null; reject(error); }
+                }; video.src = objectURL;
+            });
+        }
+
+        // --- Helper: Save Canvas Frame as JPEG ---
+        async function saveCanvasFrame(canvasElement, filename) {
+            return new Promise((resolve) => {
+                const link = document.createElement('a');
+                link.download = filename;
+                link.href = canvasElement.toDataURL('image/jpeg', 0.92); // Quality 0.92
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                // Add a small delay to help browser manage multiple downloads
+                setTimeout(resolve, DOWNLOAD_DELAY_MS);
+            });
+        }
+
+        // --- Extract Frames Function ---
+        async function extractFrames() {
+            if (isExtracting) {
+                console.warn("Extraction already in progress.");
+                status.textContent = "Extraction already running...";
+                return;
+            }
+            console.log("extractFrames: Entered");
+            if (!currentVideoFile || !activeVideoElement || !videoDuration || videoDuration <= 0 || !activeVideoElement.videoWidth || !activeVideoElement.videoHeight) {
+                status.textContent = "No valid video loaded or metadata missing.";
+                console.error("Frame extraction cancelled: Invalid video state.");
+                return;
+            }
+            const baseFilename = fileTitleInput.value.trim();
+            if (!baseFilename) {
+                status.textContent = "Please enter a base filename.";
+                fileTitleInput.focus();
+                return;
+            }
+
+            isExtracting = true; // Set flag
+            const startSliderValue = parseInt(frameSelectSlider.value, 10);
+            const numFrames = parseInt(numFramesSlider.value, 10);
+            const numDigits = String(numFrames).length > 3 ? String(numFrames).length : 3; // Padding (min 3 digits)
+
+            status.textContent = `Starting frame extraction: ${numFrames} frames, starting at ${startSliderValue}%...`;
+            console.log(`extractFrames: Base: ${baseFilename}, Start: ${startSliderValue}%, NumFrames: ${numFrames}, Padding: ${numDigits}`);
+
+            extractButton.disabled = true;
+            numFramesSlider.disabled = true;
+            frameSelectSlider.disabled = true;
+            fileTitleInput.disabled = true;
+            progressContainer.style.display = 'block';
+            progressBar.style.width = '0%';
+
+            // Create an offscreen canvas for rendering native resolution frames
+            const offscreenCanvas = document.createElement('canvas');
+            const offscreenCtx = offscreenCanvas.getContext('2d');
+
+            try {
+                const video = activeVideoElement;
+
+                // Set offscreen canvas to native video resolution
+                offscreenCanvas.width = video.videoWidth;
+                offscreenCanvas.height = video.videoHeight;
+                console.log(`Offscreen Canvas Size (Native Res): ${offscreenCanvas.width}w x ${offscreenCanvas.height}h`);
+
+                // --- Timing Calculation ---
+                const startTimePercent = startSliderValue / 100.0;
+                let currentTime = videoDuration * startTimePercent;
+                currentTime = Math.max(0, Math.min(currentTime, videoDuration - 0.01)); // Ensure start is valid
+                const singleFrameTimeIncrement = 1.0 / FRAME_RATE_ESTIMATE;
+                console.log(`extractFrames: Starting frame loop. Start Time: ${currentTime.toFixed(3)}s, Time Increment Per Frame: ${singleFrameTimeIncrement.toFixed(4)}s`);
+
+                let framesExtracted = 0;
+                for (let i = 0; i < numFrames; i++) {
+                    const targetTime = currentTime + i * singleFrameTimeIncrement;
+
+                    // Check if target time exceeds video duration (allowing for small inaccuracies)
+                    if (targetTime >= videoDuration - (singleFrameTimeIncrement / 2)) {
+                        console.log(`extractFrames: Target time ${targetTime.toFixed(3)}s for frame ${i+1} >= video duration ${videoDuration.toFixed(3)}s. Stopping loop.`);
+                        status.textContent = `Extraction stopped: Reached end of video after processing ${framesExtracted} frames.`;
+                        break;
+                    }
+
+                    try {
+                        // Seek to the target time for the frame
+                        await seekPromise(video, targetTime);
+                        await new Promise(requestAnimationFrame); // Wait for render buffer update
+
+                        // Draw the FULL NATIVE RESOLUTION video frame onto the offscreen canvas
+                        offscreenCtx.drawImage(video, 0, 0, offscreenCanvas.width, offscreenCanvas.height);
+
+                        // Also update the preview canvas (optional, but nice feedback)
+                        if (previewCanvas.width > 0 && previewCanvas.height > 0) {
+                            previewCtx.drawImage(video, 0, 0, previewCanvas.width, previewCanvas.height);
+                        }
+
+                        // Generate filename (e.g., baseFilename_001.jpg)
+                        const frameNumberStr = String(i + 1).padStart(numDigits, '0');
+                        const filename = `${baseFilename}_${frameNumberStr}.jpg`;
+
+                        // Save the frame from the offscreen canvas
+                        await saveCanvasFrame(offscreenCanvas, filename);
+
+                        framesExtracted++;
+                        const progress = ((i + 1) / numFrames) * 100;
+                        progressBar.style.width = `${progress}%`;
+                        status.textContent = `Extracting frame ${i + 1} / ${numFrames}... Saved ${filename}`;
+
+                        // Optional short yield to prevent browser freezing on very fast machines/short videos
+                        // await new Promise(resolveYield => setTimeout(resolveYield, 5));
+
+                    } catch (seekDrawError) {
+                        console.error(`Error seeking/drawing frame ${i + 1} (target time ${targetTime.toFixed(3)}s):`, seekDrawError);
+                        status.textContent = `Error processing frame ${i + 1}, skipping...`;
+                        // Wait a bit longer after an error before trying the next frame
+                        await new Promise(resolvePause => setTimeout(resolvePause, 100));
+                    }
+                } // End frame loop
+
+                progressBar.style.width = '100%';
+                if (framesExtracted > 0) {
+                     status.textContent = `Frame extraction complete: ${framesExtracted} frames saved (check browser downloads).`;
+                } else if (numFrames > 0) {
+                     status.textContent = `Extraction finished, but no frames could be saved. Check start time/video length.`;
+                } else {
+                     status.textContent = `Extraction finished (0 frames requested).`;
+                }
+                console.log(`extractFrames: Frame loop finished. Extracted ${framesExtracted} frames.`);
+
+            } catch (error) {
+                status.textContent = `Error during frame extraction: ${error.message}`;
+                console.error('Error during extractFrames:', error);
+                if(previewCtx && previewCanvas.width > 0 && previewCanvas.height > 0) {
+                    previewCtx.fillStyle = 'rgba(255, 0, 0, 0.5)';
+                    previewCtx.fillRect(0, 0, previewCanvas.width, previewCanvas.height);
+                    previewCtx.fillStyle = 'white';
+                    previewCtx.fillText("Error occurred", 10, 20);
+                }
+            } finally {
+                isExtracting = false; // Clear flag
+                // Re-enable controls only if video is still valid
+                if (videoDuration > 0 && activeVideoElement?.videoWidth > 0) {
+                    extractButton.disabled = false;
+                    numFramesSlider.disabled = false;
+                    frameSelectSlider.disabled = false;
+                    fileTitleInput.disabled = false;
+                } else {
+                    // If video became invalid, keep controls disabled
+                    extractButton.disabled = true;
+                    numFramesSlider.disabled = true;
+                    frameSelectSlider.disabled = true;
+                    fileTitleInput.disabled = true;
+                }
+                console.log(`extractFrames: Finally block. Controls state updated.`);
+                // Hide progress bar after a short delay
+                setTimeout(() => { progressContainer.style.display = 'none'; progressBar.style.width = '0%'; }, 1500);
+            }
+        }
+
+
+        // --- Reset Application State ---
+        function resetApplication() {
+            console.log('Application reset');
+            if (isExtracting) {
+                console.warn("Reset called during extraction - potential issues.");
+                // Consider adding logic to cancel ongoing extraction if possible/needed
+                isExtracting = false; // Force clear flag
+            }
+            if(previewCtx && previewCanvas?.width > 0) { previewCtx.clearRect(0, 0, previewCanvas.width, previewCanvas.height); }
+            previewCanvas?.removeAttribute('width'); previewCanvas?.removeAttribute('height');
+            // thumbnailStrip.innerHTML = ''; // Removed
+            extractButton.disabled = true; status.textContent = 'Upload an MP4 video to begin';
+            progressContainer.style.display = 'none'; progressBar.style.width = '0%';
+            if (frameSelectSliderContainer) frameSelectSliderContainer.style.display = 'none'; if (frameSelectSlider) { frameSelectSlider.disabled = true; frameSelectSlider.value = 0; } if (frameSelectValueDisplay) frameSelectValueDisplay.textContent = '0%'; if (frameSelectTimestampDisplay) frameSelectTimestampDisplay.textContent = '(--:--)'; if (totalFramesInfoSpan) totalFramesInfoSpan.textContent = '(Total: N/A)';
+            if (numFramesSlider) { numFramesSlider.value = DEFAULT_NUM_FRAMES; numFramesSlider.disabled = true; } if (numFramesValueDisplay) numFramesValueDisplay.textContent = DEFAULT_NUM_FRAMES;
+            if (fileTitleInput) { fileTitleInput.value = 'video_frames'; fileTitleInput.disabled = true; } // Reset filename
+            videoDuration = 0; totalVideoFramesEstimate = 0; currentVideoFile = null;
+            if (activeVideoElement) { console.log("Reset: Cleaning up active video element."); activeVideoElement.pause(); activeVideoElement.onerror = null; activeVideoElement.onloadedmetadata = null; activeVideoElement.oncanplay = null; const oldSrc = activeVideoElement.src; activeVideoElement.removeAttribute('src'); if (oldSrc && oldSrc.startsWith('blob:') && typeof URL.revokeObjectURL === 'function') { try { URL.revokeObjectURL(oldSrc); console.log("Reset: Revoked Object URL:", oldSrc); } catch(e){ console.warn("Error revoking object URL during reset:", e); } } activeVideoElement.load(); activeVideoElement = null; }
+            try { const fileInput = document.getElementById('videoInput'); if (fileInput) fileInput.value = ''; } catch(e){ console.warn("Could not clear file input during reset.");}
+        }
+
+        // Removed saveImage() function as saving happens during extraction.
+
+    </script>
+</body>
+</html>
